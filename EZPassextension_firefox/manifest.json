@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "EZPass Extension",
+  "version": "1.0",
+  "description": "Enhanced password manager integration with draggable field mapping",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "EZPass Dashboard"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ezpass@yourdomain.com",
+      "strict_min_version": "109.0"
+    }
+  }
+}

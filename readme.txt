@@ -1,0 +1,1 @@
+Em browsers chrome ativar modo desenvolvedor, carregar expandida e pronto para uso.
