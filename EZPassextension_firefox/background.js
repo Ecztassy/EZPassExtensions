@@ -1,32 +1,58 @@
 let ws;
 
-function connectWebSocket() {
+function connectWebSocket(attempt = 1, maxAttempts = 3) {
   ws = new WebSocket('ws://127.0.0.1:9001');
+  
   ws.onopen = () => {
-    console.log('WebSocket connected');
+    console.log(`WebSocket connected on attempt ${attempt}`);
   };
+  
   ws.onclose = () => {
     console.log('WebSocket disconnected');
-    ws = null; // Reset ws to allow reconnection
+    ws = null;
+    if (attempt <= maxAttempts) {
+      console.log(`Reconnecting... Attempt ${attempt + 1}`);
+      setTimeout(() => connectWebSocket(attempt + 1, maxAttempts), 1000);
+    } else {
+      console.error('Max WebSocket reconnection attempts reached');
+    }
   };
+  
   ws.onerror = (err) => {
     console.error('WebSocket error:', err);
   };
+  
   ws.onmessage = (event) => {
-    const response = JSON.parse(event.data);
-    console.log('WebSocket message received:', response);
-    browser.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    let response;
+    try {
+      response = JSON.parse(event.data);
+      console.log('WebSocket message received:', response);
+    } catch (e) {
+      console.error('Failed to parse WebSocket message:', event.data, e);
+      return;
+    }
+    
+    browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
       if (tabs[0]?.id) {
-        browser.tabs.sendMessage(tabs[0].id, { action: 'fillFields', data: response }, (response) => {
-          if (browser.runtime.lastError) {
-            console.error('Failed to send message to content script:', browser.runtime.lastError);
-          }
+        browser.tabs.sendMessage(tabs[0].id, { action: 'fillFields', data: response }).catch(err => {
+          console.error('Failed to send message to content script:', err);
         });
       } else {
         console.warn('No active tab found to send WebSocket response');
       }
-    });
+    }).catch(err => console.error('Tab query failed:', err));
   };
+}
+
+function normalizeUrl(url) {
+  try {
+    if (url.startsWith('file://')) return 'file';
+    const { hostname } = new URL(url);
+    return hostname.replace(/^www\./, '').toLowerCase();
+  } catch (e) {
+    console.error('URL normalization error:', e);
+    return url.split('/')[0].toLowerCase();
+  }
 }
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -38,18 +64,30 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'sendUrl') {
     const url = message.url;
+    const hostname = normalizeUrl(url);
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.log('WebSocket not connected, attempting to connect...');
       connectWebSocket();
-      ws.onopen = () => {
-        console.log('Sending URL after WebSocket opened:', url);
-        ws.send(url);
-      };
+      const waitForConnection = setInterval(() => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          console.log('Sending hostname after WebSocket opened:', hostname);
+          ws.send(hostname);
+          clearInterval(waitForConnection);
+          sendResponse({ success: true });
+        }
+      }, 100);
+      setTimeout(() => {
+        clearInterval(waitForConnection);
+        if (ws?.readyState !== WebSocket.OPEN) {
+          console.error('WebSocket failed to connect in time');
+          sendResponse({ success: false, error: 'WebSocket connection timeout' });
+        }
+      }, 3000);
     } else {
-      console.log('Sending URL via WebSocket:', url);
-      ws.send(url);
+      console.log('Sending hostname via WebSocket:', hostname);
+      ws.send(hostname);
+      sendResponse({ success: true });
     }
-    sendResponse({ success: true }); // Acknowledge receipt; actual data comes via WebSocket
   } else if (message.action === 'savePasswordViaWebSocket') {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.error('WebSocket not connected for savePassword');
@@ -70,11 +108,24 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ws.send(msg);
       sendResponse({ success: true });
     }
+  } else if (message.action === 'fillWithSelectedAccount') {
+    browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
+      if (tabs[0]?.id) {
+        browser.tabs.sendMessage(tabs[0].id, {
+          action: 'fillFields',
+          data: {
+            username_email: message.username_email,
+            password: message.password,
+            preferences: message.preferences
+          }
+        });
+      }
+    }).catch(err => console.error('Tab query failed:', err));
+    sendResponse({ success: true });
   }
   return true; // Keep the message channel open for async responses
 });
 
-// Ensure WebSocket reconnects if closed unexpectedly
 browser.runtime.onStartup.addListener(() => {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     connectWebSocket();
