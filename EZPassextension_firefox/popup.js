@@ -1,19 +1,25 @@
 document.getElementById('fillNow').addEventListener('click', () => {
-  browser.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
     const url = tabs[0].url;
-    browser.runtime.sendMessage({ action: 'sendUrl', url: url });
-  });
+    const hostname = url.startsWith('file://') ? 'file' : new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+    browser.runtime.sendMessage({ action: 'sendUrl', url: hostname }).then(response => {
+      if (!response.success) {
+        console.error('Fill request failed:', response.error);
+      } else {
+        console.log('Fill request sent successfully');
+      }
+    }).catch(err => console.error('Error sending fill message:', err));
+  }).catch(err => console.error('Tab query failed:', err));
 });
 
 document.getElementById('saveCredentials').addEventListener('click', () => {
-  browser.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
     const url = tabs[0].url;
     const hostname = url.startsWith('file://') ? 'file' : new URL(url).hostname.replace(/^www\./, '').toLowerCase();
     browser.tabs.sendMessage(tabs[0].id, { action: 'triggerSave', hostname: hostname });
-  });
+  }).catch(err => console.error('Tab query failed:', err));
 });
 
-// Set drag data for draggable elements
 document.getElementById('user').addEventListener('dragstart', (e) => {
   e.dataTransfer.setData('text/plain', 'username');
   console.log('Dragging User/Email as username');
@@ -24,7 +30,6 @@ document.getElementById('password').addEventListener('dragstart', (e) => {
   console.log('Dragging Password as password');
 });
 
-// Handle multiple account selection
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'showAccountSelector') {
     showAccountSelector(message.hostname, message.accounts, message.preferences);
@@ -35,17 +40,9 @@ function showAccountSelector(hostname, accounts, preferences) {
   const container = document.createElement('div');
   container.id = 'accountSelector';
   container.style.cssText = `
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: white;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 20px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    z-index: 10000;
-    font-family: Arial, sans-serif;
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: white; border: 1px solid #ccc; border-radius: 4px; padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 10000; font-family: Arial, sans-serif;
   `;
 
   const title = document.createElement('h3');
